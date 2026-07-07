@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
+const { ObjectId } = require('mongodb');
 
 const db = require('../data/database');
 
@@ -11,7 +12,20 @@ router.get('/', function (req, res) {
 });
 
 router.get('/signup', function (req, res) {
-  res.render('signup');
+  let sessionInputData = req.session.inputData;
+
+  if (!sessionInputData) {
+    sessionInputData = {
+      hasError: false,
+      email: '',
+      confirmedEmail: '',
+      password: ''
+    };
+  }
+
+  req.session.inputData = null;
+
+  res.render('signup', { inputData: sessionInputData });
 });
 
 router.get('/login', function (req, res) {
@@ -20,11 +34,11 @@ router.get('/login', function (req, res) {
 
 router.post('/signup', async function (req, res) {
   const userData = req.body;
+
   const enteredEmail = userData.email;
   const enteredConfirmedEmail = userData['confirm-email'];
   const enteredPassword = userData.password;
 
-  // FIX: Added .length to the password validation
   if (
     !enteredEmail ||
     !enteredConfirmedEmail ||
@@ -33,91 +47,120 @@ router.post('/signup', async function (req, res) {
     enteredEmail !== enteredConfirmedEmail ||
     !enteredEmail.includes('@')
   ) {
-     console.log('Incorrect input data');
-     return res.redirect('/signup');
+    req.session.inputData = {
+      hasError: true,
+      message: 'Invalid input. Please check your data.',
+      email: enteredEmail,
+      confirmedEmail: enteredConfirmedEmail,
+      password: enteredPassword
+    };
+
+    return req.session.save(function () {
+      res.redirect('/signup');
+    });
   }
-
-  const existingUser = await db 
-     .getDb()
-     .collection('users')
-     .findOne({ email: enteredEmail });
-
-     if(existingUser) {
-      console.log('User exists already');
-      return res.redirect('/signup');
-     }
-
-  const hashedPassword = await bcrypt.hash(enteredPassword, 12);
-
-  const user = {
-    email: enteredEmail,
-    password: hashedPassword
-  };
-
-  await db.getDb().collection('users').insertOne(user);
-
-  res.redirect('/login');
-});
-
-router.post('/login', async function (req, res) {
-  const userData = req.body;
-  const enteredEmail = userData.email;
-  const enteredPassword = userData.password;
 
   const existingUser = await db
     .getDb()
     .collection('users')
     .findOne({ email: enteredEmail });
 
-  if(!existingUser) {
-    console.log('Could not log in - user not found');
+  if (existingUser) {
+    req.session.inputData = {
+      hasError: true,
+      message: 'User already exists.',
+      email: enteredEmail,
+      confirmedEmail: enteredConfirmedEmail,
+      password: enteredPassword
+    };
+
+    return req.session.save(function () {
+      res.redirect('/signup');
+    });
+  }
+
+  const hashedPassword = await bcrypt.hash(enteredPassword, 12);
+
+  await db.getDb().collection('users').insertOne({
+    email: enteredEmail,
+    password: hashedPassword,
+    isAdmin: false
+  });
+
+  res.redirect('/login');
+});
+
+router.post('/login', async function (req, res) {
+  const enteredEmail = req.body.email;
+  const enteredPassword = req.body.password;
+
+  const existingUser = await db
+    .getDb()
+    .collection('users')
+    .findOne({ email: enteredEmail });
+
+  if (!existingUser) {
+    console.log('User not found');
     return res.redirect('/login');
   }
-  
-  // FIX: Fixed the typo 'passwordsAreEqaul' -> 'passwordsAreEqual'
+
   const passwordsAreEqual = await bcrypt.compare(
     enteredPassword,
     existingUser.password
   );
 
   if (!passwordsAreEqual) {
-    console.log('Could not log in - wrong password');
+    console.log('Wrong password');
     return res.redirect('/login');
   }
 
-  req.session.user = { id: existingUser._id, email: existingUser.email };
+  req.session.user = {
+    id: existingUser._id.toString(),
+    email: existingUser.email
+  };
+
   req.session.isAuthenticated = true;
 
-  console.log('=== BEFORE REDIRECT ===');
-  console.log('Session ID:', req.sessionID);
-  console.log('Session Data:', req.session);
-
-  return req.session.save(function (err) {
+  req.session.save(function (err) {
     if (err) {
-      console.log('Session save error:', err);
+      console.log(err);
       return res.redirect('/login');
     }
-    res.redirect('/admin');
+
+    res.redirect('/profile');
   });
 });
 
-router.get('/admin', function (req, res) {
-  console.log('=== INSIDE ADMIN ROUTE ===');
-  console.log('Session ID incoming:', req.sessionID);
-  console.log('Session Data incoming:', req.session);
-
+router.get('/profile', function (req, res) {
   if (!req.session.isAuthenticated) {
-    console.log('Authentication failed - Redirecting to 401');
     return res.status(401).render('401');
   }
+
+  res.render('profile');
+});
+
+router.get('/admin', async function (req, res) {
+  if (!req.session.isAuthenticated) {
+    return res.status(401).render('401');
+  }
+
+  const user = await db.getDb().collection('users').findOne({
+    _id: new ObjectId(req.session.user.id)
+  });
+
+  if (!user || !user.isAdmin) {
+    return res.status(403).render('403');
+  }
+
   res.render('admin');
 });
-// FIX: Implemented the logout functionality
+
 router.post('/logout', function (req, res) {
   req.session.destroy(function (err) {
     if (err) {
-      console.log('Error logging out:', err);
+      console.log(err);
     }
+
     res.redirect('/');
   });
 });
