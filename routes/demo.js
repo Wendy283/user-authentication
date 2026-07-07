@@ -1,6 +1,5 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const session = require('express-session');
 const { ObjectId } = require('mongodb');
 
 const db = require('../data/database');
@@ -17,6 +16,7 @@ router.get('/signup', function (req, res) {
   if (!sessionInputData) {
     sessionInputData = {
       hasError: false,
+      message: '',
       email: '',
       confirmedEmail: '',
       password: ''
@@ -25,19 +25,34 @@ router.get('/signup', function (req, res) {
 
   req.session.inputData = null;
 
-  res.render('signup', { inputData: sessionInputData });
+  res.render('signup', {
+    inputData: sessionInputData
+  });
 });
 
 router.get('/login', function (req, res) {
-  res.render('login');
+  let sessionInputData = req.session.inputData;
+
+  if (!sessionInputData) {
+    sessionInputData = {
+      hasError: false,
+      message: '',
+      email: '',
+      password: ''
+    };
+  }
+
+  req.session.inputData = null;
+
+  res.render('login', {
+    inputData: sessionInputData
+  });
 });
 
 router.post('/signup', async function (req, res) {
-  const userData = req.body;
-
-  const enteredEmail = userData.email;
-  const enteredConfirmedEmail = userData['confirm-email'];
-  const enteredPassword = userData.password;
+  const enteredEmail = req.body.email;
+  const enteredConfirmedEmail = req.body['confirm-email'];
+  const enteredPassword = req.body.password;
 
   if (
     !enteredEmail ||
@@ -100,8 +115,16 @@ router.post('/login', async function (req, res) {
     .findOne({ email: enteredEmail });
 
   if (!existingUser) {
-    console.log('User not found');
-    return res.redirect('/login');
+    req.session.inputData = {
+      hasError: true,
+      message: 'Could not log you in. Please check your credentials.',
+      email: enteredEmail,
+      password: enteredPassword
+    };
+
+    return req.session.save(function () {
+      res.redirect('/login');
+    });
   }
 
   const passwordsAreEqual = await bcrypt.compare(
@@ -110,8 +133,16 @@ router.post('/login', async function (req, res) {
   );
 
   if (!passwordsAreEqual) {
-    console.log('Wrong password');
-    return res.redirect('/login');
+    req.session.inputData = {
+      hasError: true,
+      message: 'Could not log you in. Please check your credentials.',
+      email: enteredEmail,
+      password: enteredPassword
+    };
+
+    return req.session.save(function () {
+      res.redirect('/login');
+    });
   }
 
   req.session.user = {
@@ -136,7 +167,9 @@ router.get('/profile', function (req, res) {
     return res.status(401).render('401');
   }
 
-  res.render('profile');
+  res.render('profile', {
+    user: req.session.user
+  });
 });
 
 router.get('/admin', async function (req, res) {
@@ -152,7 +185,9 @@ router.get('/admin', async function (req, res) {
     return res.status(403).render('403');
   }
 
-  res.render('admin');
+  res.render('admin', {
+    user: req.session.user
+  });
 });
 
 router.post('/logout', function (req, res) {
