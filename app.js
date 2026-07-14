@@ -46,20 +46,42 @@ app.use(session({
 }));
 
 // ADDED: Global middleware to pass auth status to all EJS templates automatically
-app.use(function (req, res, next) {
+// Don't forget to import ObjectId if it's not already at the top of this file
+// Don't forget to import ObjectId if it's not already at the top of this file
+const { ObjectId } = require('mongodb'); 
+
+app.use(async function (req, res, next) {
   const user = req.session.user;
   const isAuth = req.session.isAuthenticated;
 
+  // 1. Always initialize defaults so EJS never throws an "undefined" error
+  res.locals.isAuth = false;
+  res.locals.isAdmin = false;
+
+  // 2. If not logged in, move to the next middleware immediately
   if (!user || !isAuth) {
     return next();
   }
-
-  // res.locals variables are automatically available inside your EJS files
-  res.locals.isAuth = isAuth;
-  res.locals.user = user;
-  next();
+    
+  try {
+    // FIX: Wrapped user.id in new ObjectId() so MongoDB can match it properly
+    const userDoc = await db.getDb().collection('users').findOne({ _id: new ObjectId(user.id) });
+    
+    if (userDoc) {
+      res.locals.isAuth = isAuth;
+      res.locals.isAdmin = !!userDoc.isAdmin; // Double bang !! ensures a clean boolean true/false
+    } else {
+      // Optional: If session exists but user was deleted from DB, clear session
+      req.session.user = null;
+      req.session.isAuthenticated = false;
+    }
+    
+    next();
+  } catch (error) {
+    // 4. Always handle async errors in Express middleware to prevent hanging requests
+    next(error);
+  }
 });
-
 app.use(demoRoutes);
 
 app.use(function(error, req, res, next) {

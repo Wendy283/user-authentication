@@ -6,11 +6,23 @@ const db = require('../data/database');
 
 const router = express.Router();
 
+// Custom Middleware: Prevents browsers from caching sensitive form pages
+function noCache(req, res, next) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+}
+
 router.get('/', function (req, res) {
   res.render('welcome');
 });
 
-router.get('/signup', function (req, res) {
+router.get('/signup', noCache, function (req, res) {
+  if (req.session.isAuthenticated) {
+    return res.redirect('/profile');
+  }
+
   let sessionInputData = req.session.inputData;
 
   if (!sessionInputData) {
@@ -30,7 +42,11 @@ router.get('/signup', function (req, res) {
   });
 });
 
-router.get('/login', function (req, res) {
+router.get('/login', noCache, function (req, res) {
+  if (req.session.isAuthenticated) {
+    return res.redirect('/profile');
+  }
+
   let sessionInputData = req.session.inputData;
 
   if (!sessionInputData) {
@@ -145,19 +161,20 @@ router.post('/login', async function (req, res) {
     });
   }
 
+  // Clear historical form input data completely on successful authentication
+  req.session.inputData = null;
+
   req.session.user = {
     id: existingUser._id.toString(),
     email: existingUser.email
   };
-
   req.session.isAuthenticated = true;
 
   req.session.save(function (err) {
     if (err) {
-      console.log(err);
+      console.error(err);
       return res.redirect('/login');
     }
-
     res.redirect('/profile');
   });
 });
@@ -193,9 +210,8 @@ router.get('/admin', async function (req, res) {
 router.post('/logout', function (req, res) {
   req.session.destroy(function (err) {
     if (err) {
-      console.log(err);
+      console.error(err);
     }
-
     res.redirect('/');
   });
 });

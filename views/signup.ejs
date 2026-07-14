@@ -4,6 +4,12 @@
 </head>
 
 <body>
+  <%- include('includes/head.ejs', { title: 'Signup' }) %>
+<link rel="stylesheet" href="/styles/forms.css">
+<link rel="stylesheet" href="/styles/auth.css">
+</head>
+
+<body>
   <%- include('includes/header.ejs') %>
 
   <main id="signup">
@@ -13,7 +19,7 @@
       <p id="input-error"><%= inputData.message %></p>
     <% } %>
 
-    <form action="/signup" method="POST">
+    <form id="auth-form" action="/signup" method="POST" autocomplete="off">
       <div class="form-control">
         <label for="email">Email</label>
         <input
@@ -42,7 +48,7 @@
           type="password"
           id="password"
           name="password"
-          value="<%= inputData.password %>"
+          value=""
           required
         >
       </div>
@@ -54,5 +60,24 @@
       <a class="btn btn-alt" href="/login">Login instead</a>
     </div>
   </main>
+
+  <script>
+    // 1. Force clear the form if the user is authenticated (Passed securely via EJS)
+    const isUserAuthenticated = <%= locals.isAuth || false %>;
+    
+    if (isUserAuthenticated) {
+      const form = document.getElementById('auth-form');
+      if (form) {
+        form.reset(); // Completely wipes out whatever the browser is forcing into the inputs
+      }
+    }
+
+    // 2. Back-button cache buster
+    window.addEventListener('pageshow', function (event) {
+      if (event.persisted || (window.performance && window.performance.navigation.type === 2)) {
+        window.location.reload();
+      }
+    });
+  </script>
 </body>
 </html>
